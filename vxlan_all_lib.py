@@ -35,6 +35,165 @@ logger.setLevel(logging.INFO)
 
 import general_lib
 
+def SpirentV6BidirStream(port_hdl1,port_hdl2,vlan1,vlan2,scale,ipv61,ipv62,rate_pps):
+    log.info(banner("STARTING SpirentV6BidirStream "))
+    log.info('VLAN1 : %r,VLAN2 : %r,SCALE : %r,IP1 : %r,IP2 : %r ' ,vlan1,vlan2,scale,ipv61,ipv62)
+
+    device_ret = sth.traffic_config (
+        mode            =       'create',
+        port_handle     =       port_hdl1,
+        l2_encap        =       'ethernet_ii_vlan',
+        vlan_id         =       vlan1,
+        vlan_id_count   =       scale,
+        vlan_id_mode    =       'increment',
+        l3_protocol     =       'ipv6',
+        ipv6_src_addr   =       ipv61,
+        ipv6_src_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
+        ipv6_src_count  =       scale,
+        ipv6_src_mode   =       'increment',
+        ipv6_dst_addr   =       ipv62,
+        ipv6_dst_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
+        ipv6_dst_count  =       scale,
+        ipv6_dst_mode   =       'increment',
+        mac_src         =       '00:12:60:60:00:02',
+        mac_dst         =       '00:13:60:60:00:02',
+        mac_src_count   =       scale,
+        mac_src_mode    =       'increment',
+        mac_src_step    =       '00:00:00:00:00:01',
+        mac_dst_count   =       scale,
+        mac_dst_mode    =       'increment',
+        mac_dst_step    =       '00:00:00:00:00:01',
+        rate_pps        =       rate_pps,
+        transmit_mode   =       'continuous')
+
+    device_ret = sth.traffic_config (
+        mode            =       'create',
+        port_handle     =       port_hdl2,
+        l2_encap        =       'ethernet_ii_vlan',
+        vlan_id         =       vlan2,
+        vlan_id_count   =       scale,
+        vlan_id_mode    =       'increment',
+        l3_protocol     =       'ipv6',
+        ipv6_src_addr   =       ipv62,
+        ipv6_src_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
+        ipv6_src_count  =       scale,
+        ipv6_src_mode   =       'increment',
+        ipv6_dst_addr   =       ipv61,
+        ipv6_dst_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
+        ipv6_dst_count  =       scale,
+        ipv6_dst_mode   =       'increment',
+        mac_src         =       '00:13:60:60:00:02',
+        mac_dst         =       '00:12:60:60:00:02',
+        mac_src_count   =       scale,
+        mac_src_mode    =       'increment',
+        mac_src_step    =       '00:00:00:00:00:01',
+        mac_dst_count   =       scale,
+        mac_dst_mode    =       'increment',
+        mac_dst_step    =       '00:00:00:00:00:01',
+        rate_pps        =       rate_pps,
+        transmit_mode   =       'continuous')
+
+
+
+def SpirentRateTest22(port_hdl1,port_hdl2,rate_fps,diff):
+    log.info(banner("  Starting Spirent Rate Test "))
+    diff = 4*int(diff)
+    result = 1
+    for port_hdl in [port_hdl1,port_hdl2]:
+        log.info("port_hdl %r,rate_fps %r,diff is %r", port_hdl,rate_fps,diff)
+        res = sth.drv_stats(query_from = port_hdl,properties = "Port.TxTotalFrameRate Port.RxTotalFrameRate")
+        rx_rate = res['item0']['PortRxTotalFrameRate']
+        tx_rate = res['item0']['PortTxTotalFrameRate']
+        log.info('+-----------------------------------------------------------------------+')
+        log.info('rx_rate is %r,tx_rate is %r',rx_rate,tx_rate)
+        log.info('+-----------------------------------------------------------------------+')
+        if abs(int(rx_rate) - int(tx_rate)) > diff:
+            log.info('Traffic  Rate Test failed - TX / RX difference is %r',abs(int(rx_rate) - int(tx_rate)))
+            log.info('Streamblock is %r',res)
+            result = 0
+        if abs(int(rx_rate) - int(rate_fps)) > diff:
+            log.info('Traffic  Rate Test failed, Rate & FPS diff is %r',abs(int(rx_rate) - int(rate_fps)))
+            log.info('Streamblock is %r',res)
+            result = 0
+    log.info(banner(" Completed Spirent Rate Test "))
+    return result
+
+
+def AllTrafficTest(port_handle1,port_handle2,rate,pps,orphan_handle_list):
+    rate3=int(rate)*4
+    #diff = 4*int(pps)
+    diff = int(rate3*.0125)
+    test1=SpirentRateTest22(port_handle1,port_handle2,rate3,diff)
+
+    if not test1:
+        log.info(banner("Rate test Failed"))
+        return 0
+
+    for port_hdl in orphan_handle_list:
+        if port_hdl:
+            res = sth.drv_stats(query_from = port_hdl,properties = "Port.TxTotalFrameRate Port.RxTotalFrameRate")
+            rx_rate = res['item0']['PortRxTotalFrameRate']
+            log.info('+----------------------------------------------------------------------+')
+            log.info('+---- Acutual RX rate at Port %r is : %r ------+',port_hdl,rx_rate)
+            log.info('+---- Expected RX rate at Port %r is : %r ------+',port_hdl,int(rate)*2)
+            log.info('+----------------------------------------------------------------------+')
+            if abs(int(rx_rate) - int(rate)*2) > diff:
+                log.info('Traffic  Rate Test failed for %r',port_hdl)
+                log.info('Stats are %r',res)
+                return 0
+    return 1
+
+
+def SpirentRateTestFull(port_list,expected_rate):
+    log.info(banner("  Starting Spirent Rate Test : SpirentRateTestFull "))
+    log.info('+-----------------------------------------------------------------------+')
+    log.info("port_list is  %r, expected_rate is %r",port_list,expected_rate)
+    log.info('+-----------------------------------------------------------------------+')
+
+    result = 1
+    for port_hdl in port_list:
+        log.info("port_hdl %r,rate_fps %r", port_hdl,expected_rate)
+        res = sth.drv_stats(query_from = port_hdl,properties = "Port.TxTotalFrameRate Port.RxTotalFrameRate")
+        rx_rate = res['item0']['PortRxTotalFrameRate']
+        tx_rate = res['item0']['PortTxTotalFrameRate']
+        log.info('+-----------------------------------------------------------------------+')
+        log.info('rx_rate is %r,tx_rate is %r',rx_rate,tx_rate)
+        log.info('+-----------------------------------------------------------------------+')
+        if abs(int(rx_rate) - int(tx_rate)) > 50000:
+            log.info('Traffic  Rate Test failed - TX / RX difference is %r',abs(int(rx_rate) - int(tx_rate)))
+            log.info('Streamblock is %r',res)
+            result = 0
+        if abs(int(rx_rate) - int(expected_rate)) > 50000:
+            log.info('Traffic  Rate Test failed, Rate & FPS diff is %r',abs(int(rx_rate) - int(expected_rate)))
+            log.info('Streamblock is %r',res)
+            result = 0
+    log.info(banner(" Completed Spirent Rate Test "))
+    return result
+
+
+def AllTrafficTestFull(l3_port_list,l3_port_rate,l2_port_rate,\
+    l2_port_list,orphan_port_list,orphan_port_rate):
+    log.info('+-----------------------------------------------------------------------+')
+    log.info("l3_port_list is  %r, l3_port_rate is %r",l3_port_list,l3_port_rate)
+    log.info("l2_port_list is  %r, l2_port_rate is %r",l2_port_list,l2_port_rate)
+    log.info("Orphan_port_list is  %r, Orphan_port_rate is %r",orphan_port_list,orphan_port_rate)
+    log.info('+-----------------------------------------------------------------------+')
+
+    test1=SpirentRateTestFull(l3_port_list,l3_port_rate)
+    test2=SpirentRateTestFull(l2_port_list,l2_port_rate)
+    test3=SpirentRateTestFull(orphan_port_list,orphan_port_rate)
+
+    if not test1:
+        log.info(banner("Rate test Failed for l3_port_list"))
+        return 0
+    if not test2:
+        log.info(banner("Rate test Failed for l2_port_list"))
+        return 0
+    if not test3:
+        log.info(banner("Rate test Failed for orphan_port_list"))
+        return 0
+
+
 
 def DeviceVxlanPreCleanupAll(uut):
     log.info(banner('Starting DeviceVxlanPreCleanupAll'))
@@ -1806,163 +1965,6 @@ def SpirentHostBidirStreamSmacSame(port_hdl1,port_hdl2,vlan1,vlan2,ip1,ip2,gw1,g
 
 
 
-def SpirentV6BidirStream(port_hdl1,port_hdl2,vlan1,vlan2,scale,ipv61,ipv62,rate_pps):
-    log.info(banner("STARTING SpirentV6BidirStream "))
-    log.info('VLAN1 : %r,VLAN2 : %r,SCALE : %r,IP1 : %r,IP2 : %r ' ,vlan1,vlan2,scale,ipv61,ipv62)
-
-    device_ret = sth.traffic_config (
-        mode            =       'create',
-        port_handle     =       port_hdl1,
-        l2_encap        =       'ethernet_ii_vlan',
-        vlan_id         =       vlan1,
-        vlan_id_count   =       scale,
-        vlan_id_mode    =       'increment',
-        l3_protocol     =       'ipv6',
-        ipv6_src_addr   =       ipv61,
-        ipv6_src_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
-        ipv6_src_count  =       scale,
-        ipv6_src_mode   =       'increment',
-        ipv6_dst_addr   =       ipv62,
-        ipv6_dst_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
-        ipv6_dst_count  =       scale,
-        ipv6_dst_mode   =       'increment',
-        mac_src         =       '00:12:60:60:00:02',
-        mac_dst         =       '00:13:60:60:00:02',
-        mac_src_count   =       scale,
-        mac_src_mode    =       'increment',
-        mac_src_step    =       '00:00:00:00:00:01',
-        mac_dst_count   =       scale,
-        mac_dst_mode    =       'increment',
-        mac_dst_step    =       '00:00:00:00:00:01',
-        rate_pps        =       rate_pps,
-        transmit_mode   =       'continuous')
-
-    device_ret = sth.traffic_config (
-        mode            =       'create',
-        port_handle     =       port_hdl2,
-        l2_encap        =       'ethernet_ii_vlan',
-        vlan_id         =       vlan2,
-        vlan_id_count   =       scale,
-        vlan_id_mode    =       'increment',
-        l3_protocol     =       'ipv6',
-        ipv6_src_addr   =       ipv62,
-        ipv6_src_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
-        ipv6_src_count  =       scale,
-        ipv6_src_mode   =       'increment',
-        ipv6_dst_addr   =       ipv61,
-        ipv6_dst_step   =       '0000:0000:0000:0000:0000:0000:0001:0000',
-        ipv6_dst_count  =       scale,
-        ipv6_dst_mode   =       'increment',
-        mac_src         =       '00:13:60:60:00:02',
-        mac_dst         =       '00:12:60:60:00:02',
-        mac_src_count   =       scale,
-        mac_src_mode    =       'increment',
-        mac_src_step    =       '00:00:00:00:00:01',
-        mac_dst_count   =       scale,
-        mac_dst_mode    =       'increment',
-        mac_dst_step    =       '00:00:00:00:00:01',
-        rate_pps        =       rate_pps,
-        transmit_mode   =       'continuous')
-
-
-
-def SpirentRateTest22(port_hdl1,port_hdl2,rate_fps,diff):
-    log.info(banner("  Starting Spirent Rate Test "))
-    diff = 4*int(diff)
-    result = 1
-    for port_hdl in [port_hdl1,port_hdl2]:
-        log.info("port_hdl %r,rate_fps %r,diff is %r", port_hdl,rate_fps,diff)
-        res = sth.drv_stats(query_from = port_hdl,properties = "Port.TxTotalFrameRate Port.RxTotalFrameRate")
-        rx_rate = res['item0']['PortRxTotalFrameRate']
-        tx_rate = res['item0']['PortTxTotalFrameRate']
-        log.info('+-----------------------------------------------------------------------+')
-        log.info('rx_rate is %r,tx_rate is %r',rx_rate,tx_rate)
-        log.info('+-----------------------------------------------------------------------+')
-        if abs(int(rx_rate) - int(tx_rate)) > diff:
-            log.info('Traffic  Rate Test failed - TX / RX difference is %r',abs(int(rx_rate) - int(tx_rate)))
-            log.info('Streamblock is %r',res)
-            result = 0
-        if abs(int(rx_rate) - int(rate_fps)) > diff:
-            log.info('Traffic  Rate Test failed, Rate & FPS diff is %r',abs(int(rx_rate) - int(rate_fps)))
-            log.info('Streamblock is %r',res)
-            result = 0
-    log.info(banner(" Completed Spirent Rate Test "))
-    return result
-
-
-def AllTrafficTest(port_handle1,port_handle2,rate,pps,orphan_handle_list):
-    rate3=int(rate)*4
-    #diff = 4*int(pps)
-    diff = int(rate3*.0125)
-    test1=SpirentRateTest22(port_handle1,port_handle2,rate3,diff)
-
-    if not test1:
-        log.info(banner("Rate test Failed"))
-        return 0
-
-    for port_hdl in orphan_handle_list:
-        if port_hdl:
-            res = sth.drv_stats(query_from = port_hdl,properties = "Port.TxTotalFrameRate Port.RxTotalFrameRate")
-            rx_rate = res['item0']['PortRxTotalFrameRate']
-            log.info('+----------------------------------------------------------------------+')
-            log.info('+---- Acutual RX rate at Port %r is : %r ------+',port_hdl,rx_rate)
-            log.info('+---- Expected RX rate at Port %r is : %r ------+',port_hdl,int(rate)*2)
-            log.info('+----------------------------------------------------------------------+')
-            if abs(int(rx_rate) - int(rate)*2) > diff:
-                log.info('Traffic  Rate Test failed for %r',port_hdl)
-                log.info('Stats are %r',res)
-                return 0
-    return 1
-
-
-def SpirentRateTestFull(port_list,expected_rate):
-    log.info(banner("  Starting Spirent Rate Test : SpirentRateTestFull "))
-    log.info('+-----------------------------------------------------------------------+')
-    log.info("port_list is  %r, expected_rate is %r",port_list,expected_rate)
-    log.info('+-----------------------------------------------------------------------+')
-
-    result = 1
-    for port_hdl in port_list:
-        log.info("port_hdl %r,rate_fps %r", port_hdl,expected_rate)
-        res = sth.drv_stats(query_from = port_hdl,properties = "Port.TxTotalFrameRate Port.RxTotalFrameRate")
-        rx_rate = res['item0']['PortRxTotalFrameRate']
-        tx_rate = res['item0']['PortTxTotalFrameRate']
-        log.info('+-----------------------------------------------------------------------+')
-        log.info('rx_rate is %r,tx_rate is %r',rx_rate,tx_rate)
-        log.info('+-----------------------------------------------------------------------+')
-        if abs(int(rx_rate) - int(tx_rate)) > 50000:
-            log.info('Traffic  Rate Test failed - TX / RX difference is %r',abs(int(rx_rate) - int(tx_rate)))
-            log.info('Streamblock is %r',res)
-            result = 0
-        if abs(int(rx_rate) - int(expected_rate)) > 50000:
-            log.info('Traffic  Rate Test failed, Rate & FPS diff is %r',abs(int(rx_rate) - int(expected_rate)))
-            log.info('Streamblock is %r',res)
-            result = 0
-    log.info(banner(" Completed Spirent Rate Test "))
-    return result
-
-
-def AllTrafficTestFull(l3_port_list,l3_port_rate,l2_port_rate,\
-    l2_port_list,orphan_port_list,orphan_port_rate):
-    log.info('+-----------------------------------------------------------------------+')
-    log.info("l3_port_list is  %r, l3_port_rate is %r",l3_port_list,l3_port_rate)
-    log.info("l2_port_list is  %r, l2_port_rate is %r",l2_port_list,l2_port_rate)
-    log.info("Orphan_port_list is  %r, Orphan_port_rate is %r",orphan_port_list,orphan_port_rate)
-    log.info('+-----------------------------------------------------------------------+')
-
-    test1=SpirentRateTestFull(l3_port_list,l3_port_rate)
-    test2=SpirentRateTestFull(l2_port_list,l2_port_rate)
-    test3=SpirentRateTestFull(orphan_port_list,orphan_port_rate)
-
-    if not test1:
-        log.info(banner("Rate test Failed for l3_port_list"))
-        return 0
-    if not test2:
-        log.info(banner("Rate test Failed for l2_port_list"))
-        return 0
-    if not test3:
-        log.info(banner("Rate test Failed for orphan_port_list"))
-        return 0
 
 
 
